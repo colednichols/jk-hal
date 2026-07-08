@@ -27,14 +27,14 @@ impl Ecu<FrontControl> {
 
 impl<T: LocalIdentifier> Ecu<T> {
     pub fn build_request(&self, cmd: &UdsCommand<T>) -> (u32, [u8; 8]) {
-        let (payload, len) = cmd.to_payload();
+        let payload = cmd.to_payload();
         
         let mut frame = [0x00; 8];
         
-        let safe_len = len.min(7); 
+        let safe_len = payload.len().min(7);
         frame[0] = safe_len as u8; 
         
-        frame[1..1 + safe_len].copy_from_slice(&payload[..safe_len]);
+        frame[1..1 + safe_len].copy_from_slice(&payload.as_slice()[..safe_len]);
         
         (self.tx_id, frame)
     }
@@ -76,7 +76,7 @@ impl TryFrom<u8> for InstrumentCluster {
             0x30 => Ok(Self::IndicatorABS),
             0x55 => Ok(Self::IndicatorAC),
             0x1E => Ok(Self::BTSI),
-            _ => Err(UdsError::UnknownServiceId(val)),
+            _ => Err(UdsError::UnknownServiceId(value)),
         }
     }
 }
@@ -172,13 +172,13 @@ pub enum IOControlParam {
 
 impl IOControlParam {
     // Return the bytes and how many bytes are valid
-    pub fn to_bytes(&self) -> ([u8; 2], usize) {
+    pub fn to_payload(&self) -> Payload<2> {
         match self {
-            Self::End => ([0x00, 0x00], 1),
-            Self::Reset => ([0x01, 0x00], 1),
-            Self::Freeze => ([0x02, 0x00], 1),
-            Self::Set(val) => ([0x07, *val], 2), // 2 bytes used
-            Self::Read => ([0x07, 0x00], 1),
+            Self::End => Payload::new([0x00, 0x00], 1),
+            Self::Reset => Payload::new([0x01, 0x00], 1),
+            Self::Freeze => Payload::new([0x02, 0x00], 1),
+            Self::Set(val) => Payload::new([0x07, *val], 2), // 2 bytes used
+            Self::Read => Payload::new([0x07, 0x00], 1),
         }
     }
 }
@@ -195,28 +195,57 @@ impl TesterPresentParam {
     }
 }
 
-#[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UdsServiceId {
-    DiagnosticSessionControl = 0x10,
-    InputOutputControl = 0x30, // Using 0x30 as implemented for the JK
-    TesterPresent = 0x3E,
+    DiagnosticSessionControl,
+    InputOutputControl, // Using 0x30 as implemented for the JK
+    TesterPresent,
+    Unknown(u8),
 }
 
-impl TryFrom<u8> for UdsServiceId {
-    type Error = UdsError;
-
-    fn try_from(val: u8) -> Result<Self, Self::Error> {
-        match val {
-            0x10 => Ok(Self::DiagnosticSessionControl),
-            0x30 => Ok(Self::InputOutputControl),
-            0x3E => Ok(Self::TesterPresent),
-            _ => Err(UdsError::UnknownServiceId(val)),
+impl UdsServiceId {
+    pub fn to_byte(&self) -> u8 {
+        match self {
+            Self::DiagnosticSessionControl => 0x10,
+            Self::InputOutputControl => 0x30,
+            Self::TesterPresent => 0x3E,
+            Self::Unknown(val) => *val,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+impl From<u8> for UdsServiceId {
+    fn from(val: u8) -> Self {
+        match val {
+            0x10 => Self::DiagnosticSessionControl,
+            0x30 => Self::InputOutputControl,
+            0x3E => Self::TesterPresent,
+            _ => Self::Unknown(val),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Payload<const N: usize> { bytes: [u8; N], len: u8 }
+
+impl<const N: usize> Payload<N> {
+    pub fn new(bytes: [u8; N], len: usize) -> Self {
+        Self {
+            bytes,
+            len: len.min(N) as u8,
+        }
+    }
+
+    pub fn as_slice(&self) -> &[u8] { &self.bytes[..self.len as usize] }
+
+    pub fn len(&self) -> usize { self.len as usize }
+
+    pub fn bytes(&self) -> &[u8; N] { &self.bytes }
+
+    pub fn is_empty(&self) -> bool { self.len == 0 }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UdsCommand<T: LocalIdentifier> {
     SessionControl(SessionControlParam),
     InputOutputControl(T, IOControlParam), // T is strongly-typed actuator
@@ -224,29 +253,32 @@ pub enum UdsCommand<T: LocalIdentifier> {
 }
 
 impl<T: LocalIdentifier> UdsCommand<T> {
-pub fn to_payload(&self) -> ([u8; 7], usize) {
+pub fn to_payload(&self) -> Payload<7> {
         let mut payload = [0x00; 7];
 
         match self {
             UdsCommand::SessionControl(param) => {
-                payload[0] = UdsServiceId::DiagnosticSessionControl as u8;
+                payload[0] = UdsServiceId::DiagnosticSessionControl.to_byte();
                 payload[1] = param.to_byte(); // Note: Your ledger correction of 0x92 is already handled by the enum!
-                (payload, 2)
+                
+                Payload::new(payload, 2)
             }
             UdsCommand::InputOutputControl(actuator, param) => {
-                payload[0] = UdsServiceId::InputOutputControl as u8;
+                payload[0] = UdsServiceId::InputOutputControl.to_byte();
                 payload[1] = actuator.id();
+
+                let p_payload = param.to_payload();
+                let p_len = p_payload.len();
+
+                payload[2..2 + p_len].copy_from_slice(p_payload.as_slice());
                 
-                let (p_bytes, p_len) = param.to_bytes();
-                // Idiomatic, panic-free copying
-                payload[2..2 + p_len].copy_from_slice(&p_bytes[..p_len]);
-                
-                (payload, 2 + p_len)
+                Payload::new(payload, 2 + p_len)
             }
             UdsCommand::TesterPresent(param) => {
-                payload[0] = UdsServiceId::TesterPresent as u8;
+                payload[0] = UdsServiceId::TesterPresent.to_byte();
                 payload[1] = param.to_byte();
-                (payload, 2)
+                
+                Payload::new(payload, 2)
             }
         }
     }
@@ -313,7 +345,7 @@ impl fmt::Display for UdsError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UdsResponse {
-    Positive(UdsServiceId, [u8; 6], usize), // Service, Payload, Length
+    Positive(UdsServiceId, Payload<6>),  // Service, Payload
     Negative(UdsServiceId, Nrc),            // Service, NRC Code
 }
 
@@ -347,8 +379,8 @@ impl SingleFrameParser {
                 return Err(UdsError::InvalidLength);
             }
             
-            // Map the raw byte back to our enum safely using TryFrom
-            let failed_service = UdsServiceId::try_from(data[2])?;
+            // Map the raw byte back to our enum safely using From
+            let failed_service = UdsServiceId::from(data[2]);
             let nrc = Nrc::from(data[3]);
             
             return Ok(UdsResponse::Negative(failed_service, nrc));
@@ -360,16 +392,18 @@ impl SingleFrameParser {
         let original_service_byte = service_id.checked_sub(0x40)
             .ok_or(UdsError::UnknownServiceId(service_id))?;
             
-        let original_service = UdsServiceId::try_from(original_service_byte)?;
+        let original_service = UdsServiceId::from(original_service_byte);
         
-        let mut payload = [0x00; 6];
+        let mut payload_bytes = [0x00; 6];
         let payload_len = len - 1; // Subtract the 1 byte used by the Service ID
         
         if payload_len > 0 {
             // Idiomatic slice copying based on dynamic length
-            payload[..payload_len].copy_from_slice(&data[2..1 + len]);
+            payload_bytes[..payload_len].copy_from_slice(&data[2..1 + len]);
         }
 
-        Ok(UdsResponse::Positive(original_service, payload, payload_len))
+        let response_payload = Payload::new(payload_bytes, payload_len);
+
+        Ok(UdsResponse::Positive(original_service, response_payload))
     }
 }
