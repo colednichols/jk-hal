@@ -298,19 +298,19 @@ pub fn to_payload(&self) -> Payload<7> {
         }
     }
 
-    pub fn io_set(actuator: T, val: u8) -> Self {
+    pub const fn io_set(actuator: T, val: u8) -> Self {
         Self::InputOutputControl(actuator, IOControlParam::Set(val))
     }
 
-    pub fn io_off(actuator: T) -> Self {
+    pub const fn io_off(actuator: T) -> Self {
         Self::InputOutputControl(actuator, IOControlParam::Set(0x00))
     }
 
-    pub fn io_end(actuator: T) -> Self {
+    pub const fn io_end(actuator: T) -> Self {
         Self::InputOutputControl(actuator, IOControlParam::End)
     }
 
-    pub fn keep_alive() -> Self {
+    pub const fn keep_alive() -> Self {
         Self::TesterPresent(TesterPresentParam::KeepAlive)
     }
 }
