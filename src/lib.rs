@@ -40,8 +40,23 @@ impl<T: LocalIdentifier> Ecu<T> {
     }
 }
 
-pub trait LocalIdentifier {
+pub trait LocalIdentifier: Sized + Copy{
     fn id(&self) -> u8;
+
+    fn on(self) -> UdsCommand<Self> {
+        UdsCommand::io_set(self, 0x01)
+    }
+
+    fn off(self) -> UdsCommand<Self> {
+        UdsCommand::io_off(self)
+    }
+    fn set(self, val: u8) -> UdsCommand<Self> {
+        UdsCommand::io_set(self, val)
+    }
+
+    fn end(self) -> UdsCommand<Self> {
+        UdsCommand::io_end(self)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
