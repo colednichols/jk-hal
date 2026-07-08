@@ -65,6 +65,22 @@ impl LocalIdentifier for InstrumentCluster {
     }
 }
 
+// Reverse matching for rx
+impl TryFrom<u8> for InstrumentCluster {
+    type Error = UdsError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x10 => Ok(Self::Illum),
+            0x11 => Ok(Self::LampDome),
+            0x30 => Ok(Self::IndicatorABS),
+            0x55 => Ok(Self::IndicatorAC),
+            0x1E => Ok(Self::BTSI),
+            _ => Err(UdsError::UnknownServiceId(val)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrontControl {
     LFog,
@@ -102,6 +118,32 @@ impl LocalIdentifier for FrontControl {
             Self::Horn => 0xAD,
             Self::LfTurn => 0x14,
             Self::RfTurn => 0x15,
+        }
+    }
+}
+
+// Reverse matching for rx
+impl TryFrom<u8> for FrontControl {
+    type Error = UdsError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0xA0 => Ok(Self::LFog),
+            0xA1 => Ok(Self::RFog),
+            0xA2 => Ok(Self::LrTurn),
+            0xA3 => Ok(Self::RrTurn),
+            0xA4 => Ok(Self::Park),
+            0xA5 => Ok(Self::Reverse),
+            0xA8 => Ok(Self::LLow),
+            0xA9 => Ok(Self::RLow),
+            0xAA => Ok(Self::LHigh),
+            0xAB => Ok(Self::RHigh),
+            0xAE => Ok(Self::LrStop),
+            0xAF => Ok(Self::RrStop),
+            0xAD => Ok(Self::Horn),
+            0x14 => Ok(Self::LfTurn),
+            0x15 => Ok(Self::RfTurn),
+            _ => Err(UdsError::UnknownServiceId(value)),
         }
     }
 }
